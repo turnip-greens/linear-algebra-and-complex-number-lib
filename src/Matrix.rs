@@ -1,15 +1,34 @@
-use num_traits::Num;
+#![feature(generic_const_exprs)]
+
+use num_traits::{Num, Signed, One, Zero};
 use std::ops::{Index, IndexMut};
 use std::ops::Add;
+use std::ops::Sub;
 use std::ops::Mul;
 use std::iter::Sum;
+use std::iter::Product;
 
 pub struct Matrix<T, const ROWS: usize, const COLS: usize> {
     pub data: [[T; COLS]; ROWS],
 }
 
-// pub type RowVector<T, const N: usize> = Matrix<T, 1, N>;
-// pub type ColVector<T, const N: usize> = Matrix<T, N, 1>;
+pub type RowVector<T, const N: usize> = Matrix<T, 1, N>;
+pub type ColVector<T, const N: usize> = Matrix<T, N, 1>;
+
+pub trait Det {
+    type Output;
+    fn det(&self) -> Self::Output;
+}
+
+pub trait Inv {
+    type Output;
+    fn inv(&self) -> Self::Output;
+}
+
+pub trait SubMat<const NEW_SIZE: usize> {
+    type Output;
+    fn get_submatrix(self, x : usize, y: usize) -> Self::Output;
+}
 
 impl<T, const ROWS: usize, const COLS: usize> Matrix<T, ROWS, COLS> 
 where 
@@ -44,8 +63,6 @@ where
     }
 }
 
-pub type RowVector<T, const N: usize> = Matrix<T, 1, N>;
-pub type ColVector<T, const N: usize> = Matrix<T, N, 1>;
 
 impl<T, const ROWS: usize, const COLS: usize> Add for Matrix<T, ROWS, COLS>
 where
@@ -59,6 +76,25 @@ where
         for r in 0..ROWS {
             for c in 0..COLS {
                 result[(r, c)] = self[(r, c)] + rhs[(r, c)];
+            }
+        }
+
+        result
+    }
+}
+
+impl<T, const ROWS: usize, const COLS: usize> Sub for Matrix<T, ROWS, COLS>
+where
+    T: Default + Copy + Num
+{
+    type Output = Matrix<T, ROWS, COLS>;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        let mut result = Self::new(T::default());
+
+        for r in 0..ROWS {
+            for c in 0..COLS {
+                result[(r, c)] = self[(r, c)] - rhs[(r, c)];
             }
         }
 
@@ -83,6 +119,60 @@ where
         }
 
         result
+    }
+}
+
+impl<T: Copy + Default, const SIZE: usize> SubMat<{ SIZE - 1 }> for Matrix<T, SIZE, SIZE> {
+    type Output = Matrix<T, {SIZE - 1}, {SIZE - 1}>;
+
+    fn get_submatrix(self, x : usize, y: usize) -> Self::Output {
+        let mut sub = Self::Output::new(T::default());
+
+        let mut current_col = 0;
+        let mut current_row = 0;
+        for i in 0..SIZE {
+            if i == x {
+                continue;
+            } else {
+                for j in 0..SIZE {
+                    if j == y {
+                        continue;
+                    } else {
+                        sub[(current_row, current_col)] = self[(i, j)];
+                        current_col += 1;
+                    }
+                    
+                }
+                current_row += 1;
+                current_col = 0;
+            }
+        }
+
+        sub
+    }
+}
+
+impl<T, const SIZE: usize> Det for Matrix<T, SIZE, SIZE>
+where
+    T: Default + Copy + Num + Sum + Product + Signed
+{
+    type Output = T;
+
+    fn det(self) -> Self::Output {
+        match SIZE {
+            1 => self[(0, 0)],
+            2 => self[(0, 0)] * self[(1, 1)] - self[(0, 1)] * self[(1, 0)],
+            3 => self[(0, 0)] * (self[(1, 1)] * self[(2, 2)] - self[(1, 2)] * self[(2, 1)]) - self[(0, 1)] * (self[(1, 0)] * self[(2, 2)] - self[(1, 2)] * self[(2, 0)]) + self[(0, 2)] * (self[(1, 0)] * self[(2, 1)] - self[(1, 1)] * self[(2, 0)]),
+            _ => {
+                let mut total = T::default();
+                let neg_one = T::zero() - T::one();
+                for j in 0..SIZE {
+                    let sign = if j % 2 == 1 { neg_one } else { T::one() };
+                    total = total + sign * self[(j, 0)] * self.get_submatrix(j, 0).det()
+                }
+                total
+            }
+        }
     }
 }
 
