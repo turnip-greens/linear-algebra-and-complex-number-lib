@@ -1,6 +1,6 @@
 #![feature(generic_const_exprs)]
 
-use num_traits::{Num, Signed, One, Zero};
+use num_traits::{Num, Signed};
 use std::ops::{Index, IndexMut};
 use std::ops::Add;
 use std::ops::Sub;
@@ -17,7 +17,7 @@ pub type ColVector<T, const N: usize> = Matrix<T, N, 1>;
 
 pub trait Det {
     type Output;
-    fn det(&self) -> Self::Output;
+    fn det(self) -> Self::Output;
 }
 
 pub trait Inv {
@@ -27,7 +27,7 @@ pub trait Inv {
 
 pub trait SubMat<const NEW_SIZE: usize> {
     type Output;
-    fn get_submatrix(self, x : usize, y: usize) -> Self::Output;
+    fn get_submatrix(&self, x : usize, y: usize) -> Self::Output;
 }
 
 impl<T, const ROWS: usize, const COLS: usize> Matrix<T, ROWS, COLS> 
@@ -40,6 +40,15 @@ where
 
     pub fn new(fill : T) -> Self {
         Self { data: [[fill; COLS]; ROWS] }
+    }
+}
+
+impl<T, const ROWS: usize, const COLS: usize> Clone for Matrix<T, ROWS, COLS> 
+where 
+    T: Default + Copy + Num + Clone
+{
+    fn clone(&self) -> Matrix::<T, ROWS, COLS> {
+        Matrix::from_data(self.data)
     }
 }
 
@@ -122,10 +131,13 @@ where
     }
 }
 
-impl<T: Copy + Default, const SIZE: usize> SubMat<{ SIZE - 1 }> for Matrix<T, SIZE, SIZE> {
+impl<T: Copy + Default + Num, const SIZE: usize> SubMat<{SIZE - 1}> for Matrix<T, SIZE, SIZE> 
+where
+    [(); SIZE - 1]:,
+{
     type Output = Matrix<T, {SIZE - 1}, {SIZE - 1}>;
 
-    fn get_submatrix(self, x : usize, y: usize) -> Self::Output {
+    fn get_submatrix(&self, x : usize, y: usize) -> Self::Output {
         let mut sub = Self::Output::new(T::default());
 
         let mut current_col = 0;
@@ -152,27 +164,51 @@ impl<T: Copy + Default, const SIZE: usize> SubMat<{ SIZE - 1 }> for Matrix<T, SI
     }
 }
 
-impl<T, const SIZE: usize> Det for Matrix<T, SIZE, SIZE>
+impl<T> Det for Matrix<T, 1, 1>
 where
-    T: Default + Copy + Num + Sum + Product + Signed
+    T: Default + Copy + Num + Sum + Product + Signed,
 {
     type Output = T;
-
     fn det(self) -> Self::Output {
-        match SIZE {
-            1 => self[(0, 0)],
-            2 => self[(0, 0)] * self[(1, 1)] - self[(0, 1)] * self[(1, 0)],
-            3 => self[(0, 0)] * (self[(1, 1)] * self[(2, 2)] - self[(1, 2)] * self[(2, 1)]) - self[(0, 1)] * (self[(1, 0)] * self[(2, 2)] - self[(1, 2)] * self[(2, 0)]) + self[(0, 2)] * (self[(1, 0)] * self[(2, 1)] - self[(1, 1)] * self[(2, 0)]),
-            _ => {
-                let mut total = T::default();
-                let neg_one = T::zero() - T::one();
-                for j in 0..SIZE {
-                    let sign = if j % 2 == 1 { neg_one } else { T::one() };
-                    total = total + sign * self[(j, 0)] * self.get_submatrix(j, 0).det()
-                }
-                total
-            }
-        }
+        self[(0, 0)]
+    }
+}
+
+impl<T> Det for Matrix<T, 2, 2>
+where
+    T: Default + Copy + Num + Sum + Product + Signed,
+{
+    type Output = T;
+    fn det(self) -> Self::Output {
+        self[(0, 0)] * self[(1, 1)] - self[(0, 1)] * self[(1, 0)]
+    }
+}
+
+impl<T> Det for Matrix<T, 3, 3>
+where
+    T: Default + Copy + Num + Sum + Product + Signed,
+{
+    type Output = T;
+    fn det(self) -> Self::Output {
+        self[(0, 0)] * (self[(1, 1)] * self[(2, 2)] - self[(1, 2)] * self[(2, 1)]) 
+      - self[(0, 1)] * (self[(1, 0)] * self[(2, 2)] - self[(1, 2)] * self[(2, 0)]) 
+      + self[(0, 2)] * (self[(1, 0)] * self[(2, 1)] - self[(1, 1)] * self[(2, 0)])
+    }
+}
+
+impl<T> Det for Matrix<T, 4, 4>
+where
+    T: Default + Copy + Num + Sum + Product + Signed,
+    Matrix<T, 4, 4>: SubMat<3>,
+    <Matrix<T, 4, 4> as SubMat<3>>::Output: Det<Output = T>,
+    [(); 3]:,
+{
+    type Output = T;
+    fn det(self) -> Self::Output {
+        self[(0, 0)] * self.get_submatrix(0, 0).det() - 
+        self[(0, 1)] * self.get_submatrix(0, 1).det() +
+        self[(0, 2)] * self.get_submatrix(0, 2).det() -
+        self[(0, 3)] * self.get_submatrix(0, 3).det()
     }
 }
 
@@ -200,6 +236,32 @@ fn main() {
     // Fails to compile if uncommented
     // let _mat_f = mat_c + mat_b;
 
-    let mat_e = mat_c * mat_d;
+    let mat_e = mat_c.clone() * mat_d;
     println!("Result: {} {} \n       {} {}", mat_e[(0, 0)], mat_e[(0, 1)], mat_e[(1, 0)], mat_e[(1, 1)]);
+    
+    
+    let det_e = mat_e.det();
+    println!("Result: {}", det_e);
+
+    let det_c = mat_c.det();
+    println!("Result: {}", det_c);
+
+    let mat_h = Matrix::from_data([
+        [2, 0, 1],
+        [3, 0, 0],
+        [5, 1, 1]
+    ]);
+
+    let det_h = mat_h.det();
+    println!("Result: {}", det_h);
+
+    let mat_j = Matrix::from_data([
+        [1, 2, 0, 0],
+        [3, 4, 0, 0],
+        [0, 0, 2, 1],
+        [0, 0, 5, 3],
+    ]);
+
+    let det_j = mat_j.det();
+    println!("Result: {}", det_j);
 }
